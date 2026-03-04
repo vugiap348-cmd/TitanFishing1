@@ -163,94 +163,136 @@ local function doSellAll()
 end
 
 -- ============================================================
--- PHASES
+-- SPAM LOOPS (chay song song)
 -- ============================================================
-local function phase_Cast()
-    if not savedCastPos then statusText="Chua luu nut Fishing!"; task.wait(3); return false end
-    local elapsed,biting=0,false
-    while isRunning and elapsed<60 do
-        -- Dung touchAt cho nut Fishing tren mobile
-        touchAt(savedCastPos.X, savedCastPos.Y)
-        task.wait(0.3)
-        if isFishBiting() or isZXCVVisible() then biting=true; break end
-        elapsed+=0.5
-        statusText="Nem can... ("..math.floor(elapsed).."s) cho ca can"
+
+-- Vong spam nut Fishing (nem can) - chay lien tuc
+local function loop_Cast()
+    while isRunning do
+        if savedCastPos then
+            touchAt(savedCastPos.X, savedCastPos.Y)
+        end
+        task.wait(0.5)  -- nem can moi 0.5s
     end
-    if not biting then statusText="Timeout - thu danh ca..." end
-    return true
 end
 
-local function phase_Fight()
-    local hasAny=false; for i=1,4 do if zxcvPos[i] then hasAny=true; break end end
-    if not hasAny then statusText="Chua luu nut ZXCV!"; task.wait(3); return false end
-    local elapsed,caught=0,false
-
-    while isRunning and elapsed<90 do
-        -- Bam tung chieu Z -> X -> C -> V, cach nhau 1 giay
-        for i=1,4 do
+-- Vong spam chieu ZXCV - lan luot Z->X->C->V, moi chieu cach 1s
+local function loop_ZXCV()
+    while isRunning do
+        local fired = false
+        for i = 1, 4 do
             if not isRunning then break end
             if zxcvPos[i] then
-                statusText="Bam chieu "..zxcvNames[i].."... ("..math.floor(elapsed).."s)"
+                fired = true
+                statusText = "Chieu "..zxcvNames[i].." | Ca: "..fishCaught.." | Ban: "..sellCount
                 touchAt(zxcvPos[i].X, zxcvPos[i].Y)
-                -- Cho 1 giay truoc khi bam chieu tiep
-                for _=1,10 do
+                -- Cho dung 1 giay giua cac chieu
+                for _ = 1, 10 do
                     if not isRunning then break end
                     task.wait(0.1)
                 end
-                elapsed += 1.0
             end
         end
-
-        -- Kiem tra ca len sau moi vong ZXCV
-        if isFishCaught() then caught=true; break end
-        if not isFishBiting() and not isZXCVVisible() and elapsed>2 then
-            task.wait(0.4)
-            if not isFishBiting() and not isZXCVVisible() then caught=true; break end
-        end
+        if not fired then task.wait(0.2) end
     end
+end
 
-    if caught then
-        fishCaught+=1; fishSession+=1
-        statusText="âœ“ CA LEN! Tong: "..fishCaught; task.wait(0.8)
-    else
-        statusText="Ca thoat / timeout - thu lai..."; task.wait(1)
-    end
-    return caught
+-- fishSession duoc tang tu ben ngoai (timer hoac tay bam)
+-- Bien nay duoc doc boi loop_SellCheck
+local sellTrigger = false   -- set true khi muon ban ngay
+
+local function doSellTrip()
+    -- Tam dung 2 vong spam
+    isRunning = false
+    task.wait(0.4)
+
+    statusText = "â¸ Dung spam - Di ban..."
+    walkTo(savedNPCPos, "Di toi NPC ban ca...")
+    task.wait(0.3); stopWalk(); task.wait(0.4)
+    doInteract(); task.wait(0.5)
+    doSellAll();  task.wait(0.5)
+    sellCount  += 1
+    fishSession = 0
+    sellTrigger = false
+    statusText = "âœ“ Ban lan "..sellCount.."! Quay lai cau..."
+
+    walkTo(savedFishPos, "Quay lai vi tri cau...")
+    stopWalk(); task.wait(0.5)
+
+    -- Bat lai spam
+    isRunning = true
+    task.spawn(loop_Cast)
+    task.spawn(loop_ZXCV)
+    statusText = "Dang cau... Ca:"..fishCaught.." Ban:"..sellCount
 end
 
 -- ============================================================
 -- MAIN LOOP
 -- ============================================================
-local function mainLoop()
-    fishSession=0
-    while isRunning do
-        local char=LP.Character; if not char then task.wait(1); continue end
-        if not savedFishPos  then statusText="Chua luu vi tri cau!"; task.wait(2); continue end
-        if not savedNPCPos   then statusText="Chua luu vi tri NPC!"; task.wait(2); continue end
-        if not savedSellPos  then statusText="Chua luu SellAll!"; task.wait(2); continue end
-        if not savedCastPos  then statusText="Chua luu nut Fishing!"; task.wait(2); continue end
-        local hzxcv=false; for i=1,4 do if zxcvPos[i] then hzxcv=true end end
-        if not hzxcv then statusText="Chua luu nut ZXCV!"; task.wait(2); continue end
+local fishTimer     = 0    -- dem giay
+local fishTimerMax  = 30   -- sau bao nhieu giay = 1 con (chinh duoc trong GUI)
 
-        local hrp=char:FindFirstChild("HumanoidRootPart")
-        if hrp and savedFishPos and (hrp.Position-savedFishPos).Magnitude>5 then
-            walkTo(savedFishPos,"Di ve vi tri cau..."); if not isRunning then break end; stopWalk(); task.wait(0.5)
+local function mainLoop()
+    fishSession = 0
+    fishTimer   = 0
+
+    -- Validate truoc
+    local miss = {}
+    if not savedFishPos  then table.insert(miss,"vi tri cau") end
+    if not savedNPCPos   then table.insert(miss,"vi tri NPC") end
+    if not savedSellPos  then table.insert(miss,"SellAll") end
+    if not savedClosePos then table.insert(miss,"X dong") end
+    if not savedCastPos  then table.insert(miss,"nut Fishing") end
+    local hz=false; for i=1,4 do if zxcvPos[i] then hz=true end end
+    if not hz then table.insert(miss,"ZXCV") end
+    if #miss>0 then
+        statusText="Thieu: "..table.concat(miss,", ").."!"
+        isRunning=false; return
+    end
+
+    -- Di ve vi tri cau truoc
+    local char=LP.Character
+    local hrp=char and char:FindFirstChild("HumanoidRootPart")
+    if hrp and savedFishPos and (hrp.Position-savedFishPos).Magnitude>5 then
+        walkTo(savedFishPos,"Di ve vi tri cau..."); stopWalk(); task.wait(0.5)
+    end
+
+    -- Bat 2 vong spam song song
+    task.spawn(loop_Cast)
+    task.spawn(loop_ZXCV)
+    statusText="Dang cau... (timer "..fishTimerMax.."s/con)"
+
+    -- Vong chinh: dem timer + kiem tra ban
+    while isRunning do
+        task.wait(1)
+        if not isRunning then break end   -- co the bi pause boi doSellTrip
+
+        fishTimer += 1
+
+        -- Cap nhat status moi giay
+        local remain = fishTimerMax - fishTimer
+        statusText = "Cau: "..remain.."s | Ca:"..fishCaught.." | Ban:"..sellCount.." | Session:"..fishSession.."/"..sellEveryN
+
+        -- Timer het = 1 con ca
+        if fishTimer >= fishTimerMax then
+            fishTimer   = 0
+            fishCaught  += 1
+            fishSession += 1
+            statusText = "đŸŸ CA LEN #"..fishCaught.." | Session:"..fishSession.."/"..sellEveryN
+            task.wait(0.3)
         end
 
-        phase_Cast(); if not isRunning then break end; task.wait(0.3)
-        local caught=phase_Fight(); if not isRunning then break end
-
-        if caught and fishSession>=sellEveryN then
-            fishSession=0
-            walkTo(savedNPCPos,"Di ban ca..."); if not isRunning then break end
-            task.wait(0.3); stopWalk(); task.wait(0.3)
-            doInteract(); task.wait(0.5)
-            doSellAll();  task.wait(0.5)
-            sellCount+=1; statusText="Ban lan "..sellCount.."! Quay lai..."
-            task.wait(0.5)
+        -- Du so con hoac bam tay -> di ban
+        if fishSession >= sellEveryN or sellTrigger then
+            task.spawn(doSellTrip)
+            -- Doi doSellTrip chay xong (no se set isRunning=true lai)
+            task.wait(1)
+            -- Doi den khi isRunning = true tro lai (toi da 30s)
+            local w=0
+            while not isRunning and w<30 do task.wait(0.5); w+=0.5 end
+            fishTimer = 0   -- reset timer sau khi ban
         end
     end
-    statusText="Da tat"
 end
 
 -- ============================================================
@@ -515,23 +557,35 @@ toggleCastBtn.Size=UDim2.new(1,-12,0,34)
 YL = mkDiv(colL, YL)
 YL = mkSec(colL, YL, "â™  CAI DAT")
 
--- Toc do ZXCV
-local cSpeed, YL2 = mkCard(colL, YL, 42, Color3.fromRGB(14,14,30))
+-- Timer moi con ca (thay the detect GUI)
+local cTimer, YL2 = mkCard(colL, YL, 42, Color3.fromRGB(14,14,30))
 YL = YL2
-mkLabel(cSpeed,6,4,120,16,"Toc do ZXCV:",Color3.fromRGB(200,200,255),11)
-local speedValLbl=mkLabel(cSpeed,130,4,60,16,math.floor(1/zxcvInterval).."/s",Color3.fromRGB(255,220,80),12)
-speedValLbl.Font=Enum.Font.GothamBold
-local sMinBtn=mkBtn(cSpeed,22,28,6,16,Color3.fromRGB(160,40,40),"âˆ’",13)
-local sPlusBtn=mkBtn(cSpeed,22,28,38,16,Color3.fromRGB(30,150,55),"+",13)
+mkLabel(cTimer,6,4,115,16,"Timer/con (s):",Color3.fromRGB(255,200,80),11)
+local timerValLbl=mkLabel(cTimer,125,4,60,16,tostring(fishTimerMax).."s",Color3.fromRGB(255,220,80),12)
+timerValLbl.Font=Enum.Font.GothamBold
+local tMinBtn=mkBtn(cTimer,22,28,6,16,Color3.fromRGB(160,40,40),"âˆ’",13)
+local tPlusBtn=mkBtn(cTimer,22,28,38,16,Color3.fromRGB(30,150,55),"+",13)
 
 -- Ban sau N con
 local cSellN, YL2 = mkCard(colL, YL, 42, Color3.fromRGB(14,14,30))
 YL = YL2
-mkLabel(cSellN,6,4,120,16,"Ban sau N con:",Color3.fromRGB(100,255,160),11)
-local sellNValLbl=mkLabel(cSellN,130,4,60,16,tostring(sellEveryN).." con",Color3.fromRGB(255,220,80),12)
+mkLabel(cSellN,6,4,115,16,"Ban sau N con:",Color3.fromRGB(100,255,160),11)
+local sellNValLbl=mkLabel(cSellN,125,4,60,16,tostring(sellEveryN).." con",Color3.fromRGB(255,220,80),12)
 sellNValLbl.Font=Enum.Font.GothamBold
 local nMinBtn=mkBtn(cSellN,22,28,6,16,Color3.fromRGB(160,40,40),"âˆ’",13)
 local nPlusBtn=mkBtn(cSellN,22,28,38,16,Color3.fromRGB(30,150,55),"+",13)
+
+YL = mkDiv(colL, YL)
+
+-- Nut +1 ca tay (bam khi thay ca len)
+local manualFishBtn=mkBtn(colL,YL,nil,4,34,Color3.fromRGB(0,140,200),"đŸŸ  +1 CA (bam khi ca len)",12)
+manualFishBtn.Size=UDim2.new(1,-8,0,34)
+YL = YL+40
+
+-- Nut ban ngay
+local sellNowBtn=mkBtn(colL,YL,nil,4,34,Color3.fromRGB(200,120,0),"đŸ’°  BAN NGAY (khong doi timer)",12)
+sellNowBtn.Size=UDim2.new(1,-8,0,34)
+YL = YL+40
 
 -- NUT BAT/TAT chinh
 YL = mkDiv(colL, YL)
@@ -791,14 +845,17 @@ end
 -- ============================================================
 -- CAI DAT +/-
 -- ============================================================
-sMinBtn.MouseButton1Click:Connect(function()
-    zxcvInterval=math.min(0.5,zxcvInterval+0.02)
-    speedValLbl.Text=math.floor(1/zxcvInterval).."/s"
+-- Timer +/-
+tMinBtn.MouseButton1Click:Connect(function()
+    fishTimerMax=math.max(5,fishTimerMax-5)
+    timerValLbl.Text=fishTimerMax.."s"
 end)
-sPlusBtn.MouseButton1Click:Connect(function()
-    zxcvInterval=math.max(0.05,zxcvInterval-0.02)
-    speedValLbl.Text=math.floor(1/zxcvInterval).."/s"
+tPlusBtn.MouseButton1Click:Connect(function()
+    fishTimerMax=fishTimerMax+5
+    timerValLbl.Text=fishTimerMax.."s"
 end)
+
+-- Ban sau N con +/-
 nMinBtn.MouseButton1Click:Connect(function()
     sellEveryN=math.max(1,sellEveryN-1)
     sellNValLbl.Text=sellEveryN.." con"
@@ -808,26 +865,40 @@ nPlusBtn.MouseButton1Click:Connect(function()
     sellNValLbl.Text=sellEveryN.." con"
 end)
 
+-- +1 Ca tay: nguoi dung bam khi thay ca len
+manualFishBtn.MouseButton1Click:Connect(function()
+    fishCaught  += 1
+    fishSession += 1
+    fishTimer   = 0   -- reset timer
+    statusText = "đŸŸ +1 tay! Ca:"..fishCaught.." Session:"..fishSession.."/"..sellEveryN
+    manualFishBtn.BackgroundColor3=Color3.fromRGB(0,180,60)
+    task.delay(0.5, function()
+        manualFishBtn.BackgroundColor3=Color3.fromRGB(0,140,200)
+    end)
+end)
+
+-- Ban ngay: set sellTrigger = true, vong chinh se xu ly
+sellNowBtn.MouseButton1Click:Connect(function()
+    if not isRunning then
+        statusText="Bat vong lap truoc da!"; return
+    end
+    sellTrigger = true
+    statusText="đŸ’° Ban ngay duoc kich hoat!"
+    sellNowBtn.BackgroundColor3=Color3.fromRGB(255,80,0)
+    task.delay(1, function()
+        sellNowBtn.BackgroundColor3=Color3.fromRGB(200,120,0)
+    end)
+end)
+
 -- ============================================================
 -- BAT / TAT
 -- ============================================================
 toggleBtn.MouseButton1Click:Connect(function()
     isRunning=not isRunning
     if isRunning then
-        local miss={}
-        if not savedFishPos then table.insert(miss,"vi tri cau") end
-        if not savedNPCPos  then table.insert(miss,"vi tri NPC") end
-        if not savedSellPos then table.insert(miss,"SellAll") end
-        if not savedClosePos then table.insert(miss,"X dong") end
-        if not savedCastPos then table.insert(miss,"Fishing") end
-        local hz=false; for i=1,4 do if zxcvPos[i] then hz=true end end
-        if not hz then table.insert(miss,"ZXCV") end
-        if #miss>0 then
-            statusText="Thieu: "..table.concat(miss,", ").."!"
-            isRunning=false; return
-        end
         fishCaught=0; fishSession=0; sellCount=0
-        statusText="Dang chay..."; task.spawn(mainLoop)
+        statusText="Khoi dong..."
+        task.spawn(mainLoop)
     else
         statusText="Da tat"; stopWalk()
     end
@@ -862,7 +933,7 @@ RS.Heartbeat:Connect(function()
     -- Cot phai stat
     sesRow1.Text="Ca da cau: "..fishCaught
     sesRow2.Text="Da ban: "..sellCount.." lan"
-    sesRow3.Text="Session: "..fishSession.." / "..sellEveryN
+    sesRow3.Text="Session: "..fishSession.."/"..sellEveryN.." | Timer: "..(fishTimerMax-fishTimer).."s"
 
     -- Progress bar session
     local pct = sellEveryN>0 and (fishSession/sellEveryN) or 0
