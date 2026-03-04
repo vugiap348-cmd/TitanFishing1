@@ -81,22 +81,20 @@ local function clickAt(x, y)
 end
 
 -- Touch tap (dung cho nut game mobile: Fishing, Z X C V)
--- Thu nhieu cach de dam bao hoat dong tren moi platform
 local function touchAt(x, y)
     -- Cach 1: SendTouchEvent (mobile)
     pcall(function()
         VIM:SendTouchEvent(x, y, Enum.UserInputState.Begin, 0)
-        task.wait(0.08)
+        task.wait(0.04)
         VIM:SendTouchEvent(x, y, Enum.UserInputState.End, 0)
     end)
-    task.wait(0.05)
-    -- Cach 2: Mouse click kem theo de chac chan
+    -- Cach 2: Mouse click kem theo
     pcall(function()
         VIM:SendMouseButtonEvent(x, y, 0, true,  game, 0)
-        task.wait(0.06)
+        task.wait(0.03)
         VIM:SendMouseButtonEvent(x, y, 0, false, game, 0)
     end)
-    task.wait(0.08)
+    task.wait(0.04)
 end
 
 -- ============================================================
@@ -176,7 +174,7 @@ local function loop_Cast()
     end
 end
 
--- Vong spam chieu ZXCV - lan luot Z->X->C->V, moi chieu cach 1s
+-- Vong spam chieu ZXCV - lan luot Z->X->C->V, cach nhau 0.1s, lien tuc
 local function loop_ZXCV()
     while isRunning do
         local fired = false
@@ -184,16 +182,12 @@ local function loop_ZXCV()
             if not isRunning then break end
             if zxcvPos[i] then
                 fired = true
-                statusText = "Chieu "..zxcvNames[i].." | Ca: "..fishCaught.." | Ban: "..sellCount
                 touchAt(zxcvPos[i].X, zxcvPos[i].Y)
-                -- Cho dung 1 giay giua cac chieu
-                for _ = 1, 10 do
-                    if not isRunning then break end
-                    task.wait(0.1)
-                end
+                task.wait(0.1)  -- khoang nho giua cac chieu, du de k bi chen
             end
         end
-        if not fired then task.wait(0.2) end
+        if not fired then task.wait(0.1) end
+        -- Khong co delay them sau vong -> spam lien tuc nhanh nhat co the
     end
 end
 
