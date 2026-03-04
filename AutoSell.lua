@@ -1,6 +1,6 @@
--- TITAN FISHING AUTO SELL v15
--- GUI NGANG: rong, de nhin, layout 2 cot
--- Logic: nem can -> ca can -> ZXCV -> ca len -> ban -> lap lai
+-- TITAN FISHING AUTO SELL v15b
+-- GUI NGANG 2 cot | Fix: touchAt cho Fishing/ZXCV | ZXCV cach nhau 1s moi chieu
+-- Logic: nem can -> ca can -> Z(1s)->X(1s)->C(1s)->V(1s) -> ca len -> ban -> lap lai
 
 local Players = game:GetService("Players")
 local UIS     = game:GetService("UserInputService")
@@ -69,13 +69,34 @@ local function isFishCaught()
 end
 
 -- ============================================================
--- CLICK
+-- CLICK / TOUCH
 -- ============================================================
+
+-- Mouse click (dung cho SellAll, X dong - nut GUI thuong)
 local function clickAt(x, y)
     VIM:SendMouseButtonEvent(x, y, 0, true,  game, 0)
-    task.wait(0.07)
+    task.wait(0.08)
     VIM:SendMouseButtonEvent(x, y, 0, false, game, 0)
-    task.wait(0.07)
+    task.wait(0.08)
+end
+
+-- Touch tap (dung cho nut game mobile: Fishing, Z X C V)
+-- Thu nhieu cach de dam bao hoat dong tren moi platform
+local function touchAt(x, y)
+    -- Cach 1: SendTouchEvent (mobile)
+    pcall(function()
+        VIM:SendTouchEvent(x, y, Enum.UserInputState.Begin, 0)
+        task.wait(0.08)
+        VIM:SendTouchEvent(x, y, Enum.UserInputState.End, 0)
+    end)
+    task.wait(0.05)
+    -- Cach 2: Mouse click kem theo de chac chan
+    pcall(function()
+        VIM:SendMouseButtonEvent(x, y, 0, true,  game, 0)
+        task.wait(0.06)
+        VIM:SendMouseButtonEvent(x, y, 0, false, game, 0)
+    end)
+    task.wait(0.08)
 end
 
 -- ============================================================
@@ -136,8 +157,8 @@ end
 local function doSellAll()
     if not savedSellPos or not savedClosePos then statusText="Chua luu SellAll/X!"; task.wait(2); return false end
     statusText="Cho popup..."; task.wait(0.8)
-    clickAt(savedSellPos.X, savedSellPos.Y); task.wait(1.0)
-    clickAt(savedClosePos.X,savedClosePos.Y); task.wait(0.4)
+    touchAt(savedSellPos.X, savedSellPos.Y); task.wait(1.2)
+    touchAt(savedClosePos.X,savedClosePos.Y); task.wait(0.5)
     statusText="Da ban xong!"; return true
 end
 
@@ -148,11 +169,14 @@ local function phase_Cast()
     if not savedCastPos then statusText="Chua luu nut Fishing!"; task.wait(3); return false end
     local elapsed,biting=0,false
     while isRunning and elapsed<60 do
-        clickAt(savedCastPos.X, savedCastPos.Y); task.wait(0.15)
+        -- Dung touchAt cho nut Fishing tren mobile
+        touchAt(savedCastPos.X, savedCastPos.Y)
+        task.wait(0.3)
         if isFishBiting() or isZXCVVisible() then biting=true; break end
-        elapsed+=0.22; statusText="Cho ca can... ("..math.floor(elapsed).."s)"
+        elapsed+=0.5
+        statusText="Nem can... ("..math.floor(elapsed).."s) cho ca can"
     end
-    if not biting then statusText="Timeout - danh ca..." end
+    if not biting then statusText="Timeout - thu danh ca..." end
     return true
 end
 
@@ -160,21 +184,37 @@ local function phase_Fight()
     local hasAny=false; for i=1,4 do if zxcvPos[i] then hasAny=true; break end end
     if not hasAny then statusText="Chua luu nut ZXCV!"; task.wait(3); return false end
     local elapsed,caught=0,false
-    while isRunning and elapsed<60 do
+
+    while isRunning and elapsed<90 do
+        -- Bam tung chieu Z -> X -> C -> V, cach nhau 1 giay
         for i=1,4 do
             if not isRunning then break end
-            if zxcvPos[i] then clickAt(zxcvPos[i].X,zxcvPos[i].Y); task.wait(zxcvInterval) end
+            if zxcvPos[i] then
+                statusText="Bam chieu "..zxcvNames[i].."... ("..math.floor(elapsed).."s)"
+                touchAt(zxcvPos[i].X, zxcvPos[i].Y)
+                -- Cho 1 giay truoc khi bam chieu tiep
+                for _=1,10 do
+                    if not isRunning then break end
+                    task.wait(0.1)
+                end
+                elapsed += 1.0
+            end
         end
-        elapsed+=zxcvInterval*4+0.07*4
+
+        -- Kiem tra ca len sau moi vong ZXCV
         if isFishCaught() then caught=true; break end
         if not isFishBiting() and not isZXCVVisible() and elapsed>2 then
-            task.wait(0.5)
+            task.wait(0.4)
             if not isFishBiting() and not isZXCVVisible() then caught=true; break end
         end
-        statusText="Danh ca ZXCV... ("..math.floor(elapsed).."s)"
     end
-    if caught then fishCaught+=1; fishSession+=1; statusText="CA LEN! #"..fishCaught; task.wait(0.6)
-    else statusText="Ca thoat - thu lai..."; task.wait(1) end
+
+    if caught then
+        fishCaught+=1; fishSession+=1
+        statusText="âœ“ CA LEN! Tong: "..fishCaught; task.wait(0.8)
+    else
+        statusText="Ca thoat / timeout - thu lai..."; task.wait(1)
+    end
     return caught
 end
 
